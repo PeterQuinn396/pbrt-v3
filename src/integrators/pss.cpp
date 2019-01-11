@@ -49,10 +49,8 @@ vector<Vector2f> generateSamples(std::shared_ptr<Sampler> sampler,
 
 // gets the next sample pair from the list generated at the start 
 // replaces a random v2f sampling 
-Vector2f PSSIntegrator::getNextSample() {
-    Vector2f sample = this->samples[sampleNum];
-	sampleNum++; 
-	return sample;
+Vector2f PSSIntegrator::getSample(int num) const { //has to be const so it can work in const Li
+    return samples[num];		
 }
 
 Spectrum PSSIntegrator::Li(const RayDifferential &r, const Scene &scene,
@@ -62,10 +60,10 @@ Spectrum PSSIntegrator::Li(const RayDifferential &r, const Scene &scene,
     Spectrum L(0.f), beta(1.f);
     RayDifferential ray(r); //this will need to be change to be constructed from a PSS sample
     bool specularBounce = false;
-    int bounces;
+    int bounces=0;
 	Float etaScale = 1;
 
-	
+	Vector2f sampleA = getSample(bounces);
 		
 	for (bounces = 0;; ++bounces) {
         // Find next path vertex and accumulate contribution
