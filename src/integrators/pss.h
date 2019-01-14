@@ -30,7 +30,7 @@ class PSSIntegrator : public SamplerIntegrator {
 
   private:
     // PSSIntegrator Private Data
-	vector<Vector2f> samples;
+	vector<Point2f> samples;
     int sampleNum;
 
     const int maxDepth;
@@ -40,8 +40,10 @@ class PSSIntegrator : public SamplerIntegrator {
    
 
 	//private methods
-    //vector<Vector2f> generateSamples(Sampler &sampler);
-    Vector2f getNextSample();
+    //void generateSamples(Sampler &sampler);
+    Point2f getSample(int num) const;
+    vector<Point2f> generateSamples(std::shared_ptr<Sampler> sampler,
+                                    int maxDepth);
 };
 
 PSSIntegrator *CreatePSSIntegrator(const ParamSet &params,
