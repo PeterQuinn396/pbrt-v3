@@ -58,8 +58,7 @@ protected:
                                     int maxDepth);
 };
 
-PSSIntegrator *CreatePSSIntegrator(const ParamSet &params,
-                                   std::shared_ptr<Sampler> sampler,
+PSSIntegrator *CreatePSSIntegrator(const ParamSet &params,                                  
                                    std::shared_ptr<const Camera> camera);
 
 }  // namespace pbrt

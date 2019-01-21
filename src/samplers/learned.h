@@ -15,14 +15,20 @@ namespace pbrt {
 
 	class LearnedSampler : public Sampler {
 	public:
-		LearnedSampler(int ns, int seed = 0);
+		LearnedSampler(int ns, int maxDepth, int seed = 0);
 		void StartPixel(const Point2i &);
+        void GenerateSample(float *pdf); 
 		Float Get1D();
 		Point2f Get2D();
+        Point2f GetRand2D();
+		
 		std::unique_ptr<Sampler> Clone(int seed);
 
 	private:
 		RNG rng;
+        int sampleNum = 0;
+        int maxDepth;
+
 	};
 
 	Sampler *CreateLearnedSampler(const ParamSet &params);

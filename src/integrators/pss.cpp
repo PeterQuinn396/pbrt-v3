@@ -111,7 +111,7 @@ Spectrum PSSIntegrator::Li(const RayDifferential &r, const Scene &scene,
         // modified to only do this sampling if we at the end of our path
         if (i.bsdf->NumComponents(BxDFType(BSDF_ALL & ~BSDF_SPECULAR)) > 0 &&
             (bounces == maxDepth ||
-             usenee)) {  // <--- changed && bounces == maxDepth
+             usenee)) {  // <--- changed 
             ++totalPaths;
             Spectrum Ld = beta * UniformSampleOneLight(i, scene, arena, sampler,
                                                        false, distrib);
@@ -233,7 +233,6 @@ Spectrum PSSIntegrator::Li(const RayDifferential &r, const Scene &scene,
 }
 
 void PSSIntegrator::Render(const Scene &scene) {    // generate samples here
-
 	
     Preprocess(scene, *sampler);
    
@@ -285,7 +284,7 @@ void PSSIntegrator::Render(const Scene &scene) {    // generate samples here
                     do {
                         // Initialize _CameraSample_ for current sample
                         CameraSample cameraSample =
-                            tileSampler->GetCameraSample(pixel);
+                            tileSampler->GetCameraSample(pixel);						
 
                         // Generate camera ray for current sample
                         RayDifferential ray;
@@ -352,8 +351,7 @@ void PSSIntegrator::Render(const Scene &scene) {    // generate samples here
     camera->film->WriteImage();
 }
 
-PSSIntegrator *CreatePSSIntegrator(const ParamSet &params,
-                                   std::shared_ptr<Sampler> sampler,
+PSSIntegrator *CreatePSSIntegrator(const ParamSet &params,                                   
                                    std::shared_ptr<const Camera> camera) {
     int maxDepth = params.FindOneInt("maxdepth", 1);  // maxDepth
     int np;
@@ -370,6 +368,7 @@ PSSIntegrator *CreatePSSIntegrator(const ParamSet &params,
                 Error("Degenerate \"pixelbounds\" specified");
         }
     }
+
     Float rrThreshold = params.FindOneFloat("rrthreshold", 1.f);
     std::string lightStrategy =
         params.FindOneString("lightsamplestrategy", "spatial");
@@ -377,6 +376,11 @@ PSSIntegrator *CreatePSSIntegrator(const ParamSet &params,
     std::string pathSampleStrategy =
         params.FindOneString("pathsamplestrategy", "bsdf");
     bool nee = params.FindOneBool("usenee", true);
+
+	// set sampler, maybe modify?
+	std::shared_ptr<Sampler> sampler =
+        std::shared_ptr<Sampler>(CreateRandomSampler(params));
+
     return new PSSIntegrator(maxDepth, camera, sampler, pixBounds, rrThreshold,
                              lightStrategy, pathSampleStrategy, nee);
 }

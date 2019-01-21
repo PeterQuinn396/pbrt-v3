@@ -841,8 +841,7 @@ std::shared_ptr<Sampler> MakeSampler(const std::string &name,
         sampler = CreateRandomSampler(paramSet);
     else if (name == "stratified")
         sampler = CreateStratifiedSampler(paramSet);
-    else if (name == "learned")
-        sampler = CreateLearnedSampler(paramSet);  // Added by -P
+    
     else
         Warning("Sampler \"%s\" unknown.", name.c_str());
     paramSet.ReportUnused();
@@ -1694,7 +1693,7 @@ Integrator *RenderOptions::MakeIntegrator() const {
     } else if (IntegratorName == "sppm") {
         integrator = CreateSPPMIntegrator(IntegratorParams, camera);
     } else if (IntegratorName == "pss") {
-        integrator = CreatePSSIntegrator(IntegratorParams, sampler, camera);
+        integrator = CreatePSSIntegrator(IntegratorParams, camera);
     } else {
         Error("Integrator \"%s\" unknown.", IntegratorName.c_str());
         return nullptr;
