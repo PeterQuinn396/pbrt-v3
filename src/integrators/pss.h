@@ -20,15 +20,18 @@ class PSSIntegrator : public Integrator{
   public:
     // PSSIntegrator Public Methods
     PSSIntegrator(int maxDepth, std::shared_ptr<const Camera> camera,
-                  std::shared_ptr<Sampler> sampler, const Bounds2i &pixelBounds,
+                  std::shared_ptr<Sampler> randSampler,
+                  std::shared_ptr<LearnedSampler> learnedSampler, 
+				  const Bounds2i &pixelBounds,
                   Float rrThreshold = 1,
                   const std::string &lightSampleStrategy = "spatial",
                   const std::string &pathSampleStrategy = "bsdf",
                   const bool usenee = true);
 
     void Preprocess(const Scene &scene, Sampler &sampler);
+
     Spectrum Li(const RayDifferential &ray, const Scene &scene,
-                Sampler &sampler, MemoryArena &arena, int depth) const;
+                Sampler &randSampler, LearnedSampler &learnedSampler, MemoryArena &arena, int depth) const;
 
     void Render(const Scene &scene);
 
@@ -48,8 +51,8 @@ protected:
     std::unique_ptr<LightDistribution> lightDistribution;
     Bounds2i pixelBounds;
 
-
-    std::shared_ptr<Sampler> sampler;
+	std::shared_ptr<LearnedSampler> learnedSampler;    
+    std::shared_ptr<Sampler> randSampler;
     
     // private methods
     // void generateSamples(Sampler &sampler);

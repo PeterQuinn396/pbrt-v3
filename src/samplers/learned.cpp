@@ -9,9 +9,10 @@ namespace pbrt {
 	LearnedSampler::LearnedSampler(int ns, int maxDepth, int seed) : Sampler(ns), maxDepth(maxDepth), rng(seed) {}
 
 	Float LearnedSampler::Get1D() {
+		// commented out whatever this was
 		// ProfilePhase _(Prof::GetSample);
 		// CHECK_LT(currentPixelSampleIndex, samplesPerPixel);
-		return rng.UniformFloat();
+        return sample1D;
 	}
 
 	Point2f LearnedSampler::Get2D() {
@@ -35,7 +36,7 @@ namespace pbrt {
 		// generate (k+1) pairs of samples, (total of 2(k+1) samples)
 		// k is number of segments in path, +1 for choosing the initial point to trace from in pixel
 		for (int i = 0; i < maxDepth+1; ++i) {
-            Point2f _sample = {rng.UniformFloat(), rng.UniformFloat()};
+            Point2f _sample = {rng.UniformFloat(), rng.UniformFloat()}; //generate a random point for now
             samples2D.emplace_back(_sample);		
 		}
 
@@ -65,10 +66,10 @@ namespace pbrt {
 		Sampler::StartPixel(p);
 	}
 
+	// not going to use 
 	Sampler *CreateLearnedSampler(const ParamSet &params) {
 		int ns = params.FindOneInt("pixelsamples", 4);
         int maxDepth = params.FindOneInt("maxdepth", 1);  // maxDepth
 		return new LearnedSampler(ns, maxDepth);
 	}
-
 }  // namespace pbrt

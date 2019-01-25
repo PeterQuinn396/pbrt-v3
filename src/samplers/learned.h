@@ -28,6 +28,8 @@ namespace pbrt {
 		RNG rng;
         int sampleNum = 0;
         int maxDepth;
+        std::vector<Point2f> samples2D;
+        Float sample1D;
 
 	};
 
