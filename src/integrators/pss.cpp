@@ -22,7 +22,7 @@ STAT_COUNTER("Integrator/Camera rays traced", nCameraRays);
 
 PSSIntegrator::PSSIntegrator(int maxDepth, std::shared_ptr<const Camera> camera,
                              std::shared_ptr<Sampler> randSampler,
-                             std::shared_ptr<LearnedSampler> learnedSampler,
+                             LearnedSampler &learnedSampler,
                              const Bounds2i &pixelBounds, Float rrThreshold,
                              const std::string &lightSampleStrategy,
                              const std::string &pathSampleStrategy,
@@ -43,12 +43,11 @@ void PSSIntegrator::Preprocess(const Scene &scene, Sampler &sampler) {
 }
 
 Spectrum PSSIntegrator::Li(const RayDifferential &r, const Scene &scene,
-                           Sampler &randSampler, LearnedSampler &learnedSampler, MemoryArena &arena,
-                           int depth) const {
+                           Sampler &randSampler, LearnedSampler &learnedSampler,
+                           MemoryArena &arena, int depth) const {
     ProfilePhase p(Prof::SamplerIntegratorLi);
     Spectrum L(0.f), beta(1.f);
-    RayDifferential ray(
-        r);  // this will need to be change to be constructed from a PSS sample
+    RayDifferential ray(r);  
     bool specularBounce = false;
     int bounces = 0;
     Float etaScale = 1;
@@ -77,7 +76,7 @@ Spectrum PSSIntegrator::Li(const RayDifferential &r, const Scene &scene,
 
         // Terminate path if ray escaped or maxDepth exceeded (not sure why this
         // hasn't been put in the loop declaration)
-        if (!foundIntersection || bounces > maxDepth) break;
+        if (!foundIntersection || bounces >= maxDepth) break;
 
         // Compute scattering functions and skip over medium boundaries
         i.ComputeScatteringFunctions(ray, arena, true);
@@ -94,10 +93,11 @@ Spectrum PSSIntegrator::Li(const RayDifferential &r, const Scene &scene,
         // But skip for perfectly specfular BSDFs
         // modified to only do this sampling if we at the end of our path
         if (i.bsdf->NumComponents(BxDFType(BSDF_ALL & ~BSDF_SPECULAR)) > 0 &&
-            (bounces == maxDepth || usenee)) {  // <--- changed
+            (bounces == maxDepth-1 || usenee)) {  // <--- changed
             ++totalPaths;
-            Spectrum Ld = beta * UniformSampleOneLight(i, scene, arena, randSampler, // to change
-                                                       false, distrib);
+            Spectrum Ld = beta * UniformSampleOneLight(
+                                     i, scene, arena, randSampler,  // to change
+                                     false, distrib);
 
             VLOG(2) << "Sampled direct lighting Ld = " << Ld;
             if (Ld.IsBlack()) ++zeroRadiancePaths;
@@ -105,6 +105,8 @@ Spectrum PSSIntegrator::Li(const RayDifferential &r, const Scene &scene,
             L += Ld;
         }
 
+		if (bounces == maxDepth - 1) break; // break when we hit the maxDepth - 1
+		
         // Sample BSDF to get new path direction
         // Change to pull from the generated vector sample
 
@@ -116,7 +118,7 @@ Spectrum PSSIntegrator::Li(const RayDifferential &r, const Scene &scene,
         BxDFType flags;
 
         Spectrum f;
-        Point2f rand2D = learnedSampler.Get2D();  // swap with getNextParameter
+        Point2f rand2D = learnedSampler.Get2D();  
 
         // -------------------------------------- Can use to compare different
         // sampling strategies for example, is it better to learn to
@@ -169,21 +171,23 @@ Spectrum PSSIntegrator::Li(const RayDifferential &r, const Scene &scene,
         if (i.bssrdf && (flags * BSDF_TRANSMISSION)) {
             // Importance sample the BSSRDF
             SurfaceInteraction pi;
-            Spectrum S = i.bssrdf->Sample_S(scene, randSampler.Get1D(),
-                                            randSampler.Get2D(), arena, &pi, &pdf);
+            Spectrum S =
+                i.bssrdf->Sample_S(scene, randSampler.Get1D(),
+                                   randSampler.Get2D(), arena, &pi, &pdf);
             DCHECK(!std::isinf(beta.y()));
             if (S.IsBlack() || pdf == 0) break;
             beta *= S / pdf;
 
             // Account for the direct subsurface scattering component
 
-            L += beta * UniformSampleOneLight(pi, scene, arena, randSampler, false,
+            L += beta * UniformSampleOneLight(pi, scene, arena, randSampler,
+                                              false,
                                               lightDistribution->Lookup(pi.p));
 
             // Account for the indirect subsurface scattering component
 
-            Spectrum f = pi.bsdf->Sample_f(pi.wo, &wi, randSampler.Get2D(), &pdf,
-                                           BSDF_ALL, &flags);
+            Spectrum f = pi.bsdf->Sample_f(pi.wo, &wi, randSampler.Get2D(),
+                                           &pdf, BSDF_ALL, &flags);
 
             if (f.IsBlack() || pdf == 0) break;
             beta *= f * AbsDot(wi, pi.shading.n) / pdf;
@@ -236,6 +240,10 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
 
         MemoryArena arena;
 
+		// initialize/ reset sample counting paramters
+        learnedSampler.StartPixel(pixel);
+        randSampler->StartPixel(pixel);
+
         // Do this check after the StartPixel() call; this keeps
         // the usage of RNG values from (most) Samplers that use
         // RNGs consistent, which improves reproducability /
@@ -252,17 +260,21 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
             // generate the set of samples that will be used to construct the
             // path save the pdf/jacobian of the warping process
             float warp_pdf = 1.f;
-            learnedSampler->GenerateSample(&warp_pdf);
+            
+            learnedSampler.GenerateSample(&warp_pdf);
 
             CameraSample cameraSample;
             cameraSample.pFilm =
                 (Point2f)pixel +
                 learnedSampler
-                    ->Get2D();  // choose the coords in the pixel to start from
+                    .Get2D();  // choose the coords in the pixel to start from
+
+			cameraSample.pLens = learnedSampler.Get2D();
+
 
             // I don't think these are used for anything
             cameraSample.time = randSampler->Get1D();
-            cameraSample.pLens = randSampler->Get2D();
+            
 
             // Generate camera ray for current sample
             RayDifferential ray;
@@ -270,13 +282,14 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
                 camera->GenerateRayDifferential(cameraSample, &ray);
 
             // not exactly sure what this scale factor is doing
-            ray.ScaleDifferentials(
-                1 / std::sqrt((Float)learnedSampler->samplesPerPixel));
+            //ray.ScaleDifferentials(1 / std::sqrt((Float)learnedSampler.samplesPerPixel));
             ++nCameraRays;
 
             // Evaluate radiance along camera ray
             Spectrum L(0.f);
-            if (rayWeight > 0) L = Li(ray, scene, *randSampler, *learnedSampler, arena, maxDepth);
+            if (rayWeight > 0)
+                L = Li(ray, scene, *randSampler, learnedSampler, arena,
+                       maxDepth);
 
             // Issue warning if unexpected radiance value returned
             if (L.HasNaNs()) {
@@ -285,7 +298,7 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
                     "for pixel (%d, %d), sample %d. Setting to "
                     "black.",
                     pixel.x, pixel.y,
-                    (int)learnedSampler->CurrentSampleNumber());
+                    (int)learnedSampler.CurrentSampleNumber());
                 L = Spectrum(0.f);
             } else if (L.y() < -1e-5) {
                 LOG(ERROR) << StringPrintf(
@@ -293,7 +306,7 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
                     "for pixel (%d, %d), sample %d. Setting to "
                     "black.",
                     L.y(), pixel.x, pixel.y,
-                    (int)learnedSampler->CurrentSampleNumber());
+                    (int)learnedSampler.CurrentSampleNumber());
                 L = Spectrum(0.f);
             } else if (std::isinf(L.y())) {
                 LOG(ERROR) << StringPrintf(
@@ -301,7 +314,7 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
                     "for pixel (%d, %d), sample %d. Setting to "
                     "black.",
                     pixel.x, pixel.y,
-                    (int)learnedSampler->CurrentSampleNumber());
+                    (int)learnedSampler.CurrentSampleNumber());
                 L = Spectrum(0.f);
             }
             VLOG(1) << "Camera sample: " << cameraSample << " -> ray: " << ray
@@ -310,12 +323,13 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
             // Add camera ray's contribution to image
             camera->film->AddSplat(
                 cameraSample.pFilm,
-                L / learnedSampler->samplesPerPixel);  // normalize by the spp
+                L / learnedSampler.samplesPerPixel);  // normalize by the spp 
 
             // Free _MemoryArena_ memory from computing image sample
             // value
             arena.Reset();
-        } while (learnedSampler->StartNextSample());
+            randSampler->StartNextSample();
+        } while (learnedSampler.StartNextSample());
         reporter.Update();
     }
     reporter.Done();
@@ -369,9 +383,11 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
     //                    // Generate camera ray for current sample
     //                    RayDifferential ray;
     //                    Float rayWeight =
-    //                        camera->GenerateRayDifferential(cameraSample, &ray);
+    //                        camera->GenerateRayDifferential(cameraSample,
+    //                        &ray);
     //                    ray.ScaleDifferentials(
-    //                        1 / std::sqrt((Float)tileSampler->samplesPerPixel));
+    //                        1 /
+    //                        std::sqrt((Float)tileSampler->samplesPerPixel));
     //                    ++nCameraRays;
 
     //                    // Evaluate radiance along camera ray
@@ -411,7 +427,8 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
     //                    // Add camera ray's contribution to image
     //                    filmTile->AddSample(cameraSample.pFilm, L, rayWeight);
 
-    //                    // Free _MemoryArena_ memory from computing image sample
+    //                    // Free _MemoryArena_ memory from computing image
+    //                    sample
     //                    // value
     //                    arena.Reset();
     //                } while (tileSampler->StartNextSample());
@@ -425,10 +442,10 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
     //        nTiles);
     //    reporter.Done();
     //}
-    //LOG(INFO) << "Rendering finished";
+    // LOG(INFO) << "Rendering finished";
 
     //// Save final image after rendering
-    //camera->film->WriteImage();
+    // camera->film->WriteImage();
     // --------------------------------------------------------------
 }
 
@@ -458,15 +475,17 @@ PSSIntegrator *CreatePSSIntegrator(const ParamSet &params,
         params.FindOneString("pathsamplestrategy", "bsdf");
     bool nee = params.FindOneBool("usenee", true);
 
+	  int ns = params.FindOneInt("pixelsamples", 4);
+
     // set sampler, maybe modify?
     std::shared_ptr<Sampler> sampler =
         std::shared_ptr<Sampler>(CreateRandomSampler(params));
 
-    int ns = params.FindOneInt("pixelsamples", 4);
-    std::shared_ptr<LearnedSampler> learnedSampler =
-        std::shared_ptr<LearnedSampler>(new LearnedSampler(ns, maxDepth));
+  
 
-    return new PSSIntegrator(maxDepth, camera, sampler, learnedSampler,
+    LearnedSampler *learnedSampler = new LearnedSampler(ns, maxDepth);
+
+    return new PSSIntegrator(maxDepth, camera, sampler, *learnedSampler,
                              pixBounds, rrThreshold, lightStrategy,
                              pathSampleStrategy, nee);
 }

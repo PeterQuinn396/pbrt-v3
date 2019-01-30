@@ -12,6 +12,7 @@
 #include "integrator.h"
 #include "lightdistrib.h"
 #include "pbrt.h"
+#include "samplers/learned.h"
 using namespace std;
 namespace pbrt {
 
@@ -21,7 +22,7 @@ class PSSIntegrator : public Integrator{
     // PSSIntegrator Public Methods
     PSSIntegrator(int maxDepth, std::shared_ptr<const Camera> camera,
                   std::shared_ptr<Sampler> randSampler,
-                  std::shared_ptr<LearnedSampler> learnedSampler, 
+			      LearnedSampler &learnedSampler, 
 				  const Bounds2i &pixelBounds,
                   Float rrThreshold = 1,
                   const std::string &lightSampleStrategy = "spatial",
@@ -51,14 +52,9 @@ protected:
     std::unique_ptr<LightDistribution> lightDistribution;
     Bounds2i pixelBounds;
 
-	std::shared_ptr<LearnedSampler> learnedSampler;    
+	LearnedSampler learnedSampler;    
     std::shared_ptr<Sampler> randSampler;
-    
-    // private methods
-    // void generateSamples(Sampler &sampler);
-    Point2f getSample(int num) const;
-    vector<Point2f> generateSamples(std::shared_ptr<Sampler> sampler,
-                                    int maxDepth);
+        
 };
 
 PSSIntegrator *CreatePSSIntegrator(const ParamSet &params,                                  
