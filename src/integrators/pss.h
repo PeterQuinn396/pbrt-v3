@@ -34,6 +34,12 @@ class PSSIntegrator : public Integrator{
     Spectrum Li(const RayDifferential &ray, const Scene &scene,
                 Sampler &randSampler, LearnedSampler &learnedSampler, MemoryArena &arena, int depth) const;
 
+	Spectrum Li_standardPath(const RayDifferential &r,
+                                            const Scene &scene,
+                                            Sampler &sampler,
+                                            MemoryArena &arena,
+                                            int depth) const;
+
     void Render(const Scene &scene);
 
 protected:

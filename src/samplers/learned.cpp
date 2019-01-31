@@ -18,7 +18,7 @@ namespace pbrt {
 	Point2f LearnedSampler::Get2D() {
 		ProfilePhase _(Prof::GetSample);
 		// CHECK_LT(currentPixelSampleIndex, samplesPerPixel);
-		CHECK_LT(sampleNum, maxDepth + 1); // error if we try to grab more samples than generated
+		CHECK_LT(sampleNum, maxDepth + 2); // error if we try to grab more samples than generated
         return samples2D[sampleNum++]; // get the current sample pair and increment sample count
 	}
 
@@ -30,12 +30,13 @@ namespace pbrt {
 
 	void LearnedSampler::GenerateSample(float *pdf) { 
 		
-		//reset sample num
+		//reset sample num and sample array
 		sampleNum = 0;
-
+        samples2D.clear();
 		// generate (k+1) pairs of samples, (total of 2(k+1) samples)
 		// k is number of segments in path, +1 for choosing the initial point to trace from in pixel
-		for (int i = 0; i < maxDepth+1; ++i) {
+		// need to add +1 to maxdepth again because pbrt counts the number of bounce points, not segments
+		for (int i = 0; i < maxDepth+2; ++i) {
             Point2f _sample = {rng.UniformFloat(), rng.UniformFloat()}; //generate a random point for now
             samples2D.emplace_back(_sample);		
 		}
