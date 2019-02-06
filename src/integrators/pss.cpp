@@ -289,7 +289,8 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
             Spectrum L(0.f);
             if (rayWeight > 0)
                  L = Li(ray, scene, *randSampler, learnedSampler, arena, maxDepth);
-               // L = Li_standardPath(ray, scene, *randSampler, arena, maxDepth); // works perfectly
+               // L = Li_standardPath(ray, scene, *randSampler, arena, maxDepth); // works as expected
+
             // Issue warning if unexpected radiance value returned
             if (L.HasNaNs()) {
                 LOG(ERROR) << StringPrintf(
@@ -476,7 +477,7 @@ PSSIntegrator *CreatePSSIntegrator(const ParamSet &params,
 
 	  int ns = params.FindOneInt("pixelsamples", 4);
 
-    // set sampler, maybe modify?
+   
     std::shared_ptr<Sampler> sampler =
         std::shared_ptr<Sampler>(CreateRandomSampler(params));  
 
