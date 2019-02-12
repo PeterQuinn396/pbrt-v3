@@ -22,7 +22,7 @@ STAT_COUNTER("Integrator/Camera rays traced", nCameraRays);
 
 PSSIntegrator::PSSIntegrator(int maxDepth, std::shared_ptr<const Camera> camera,
                              std::shared_ptr<Sampler> randSampler,
-                             LearnedSampler &learnedSampler,
+                             std::shared_ptr<LearnedSampler> learnedSampler,
                              const Bounds2i &pixelBounds, Float rrThreshold,
                              const std::string &lightSampleStrategy,
                              const std::string &pathSampleStrategy,
@@ -241,7 +241,7 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
         MemoryArena arena;
 
 		// initialize/ reset sample counting paramters
-        learnedSampler.StartPixel(pixel);
+        learnedSampler->StartPixel(pixel);
         randSampler->StartPixel(pixel);
 
         // Do this check after the StartPixel() call; this keeps
@@ -261,15 +261,14 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
             // path save the pdf/jacobian of the warping process
             float warp_pdf = 1.f;
             
-            learnedSampler.GenerateSample(&warp_pdf);
+            learnedSampler->GenerateSample(&warp_pdf);
 
             CameraSample cameraSample;
             cameraSample.pFilm =
                 (Point2f)pixel +
-                learnedSampler
-                    .Get2D();  // choose the coords in the pixel to start from
+                learnedSampler->Get2D();  // choose the coords in the pixel to start from
 
-			cameraSample.pLens = learnedSampler.Get2D();
+			cameraSample.pLens = learnedSampler->Get2D();
 
             // I don't think these are used for anything
             cameraSample.time = randSampler->Get1D();
@@ -282,13 +281,13 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
 
             // not exactly sure what this scale factor is doing
 			// makes some difference in the noise pattern
-            ray.ScaleDifferentials(1 / std::sqrt((Float)learnedSampler.samplesPerPixel));
+            ray.ScaleDifferentials(1 / std::sqrt((Float)learnedSampler->samplesPerPixel));
             ++nCameraRays;
 
             // Evaluate radiance along camera ray
             Spectrum L(0.f);
             if (rayWeight > 0)
-                 L = Li(ray, scene, *randSampler, learnedSampler, arena, maxDepth);
+                 L = Li(ray, scene, *randSampler, *learnedSampler, arena, maxDepth);
                // L = Li_standardPath(ray, scene, *randSampler, arena, maxDepth); // works as expected
 
             // Issue warning if unexpected radiance value returned
@@ -298,7 +297,7 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
                     "for pixel (%d, %d), sample %d. Setting to "
                     "black.",
                     pixel.x, pixel.y,
-                    (int)learnedSampler.CurrentSampleNumber());
+                    (int)learnedSampler->CurrentSampleNumber());
                 L = Spectrum(0.f);
             } else if (L.y() < -1e-5) {
                 LOG(ERROR) << StringPrintf(
@@ -306,7 +305,7 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
                     "for pixel (%d, %d), sample %d. Setting to "
                     "black.",
                     L.y(), pixel.x, pixel.y,
-                    (int)learnedSampler.CurrentSampleNumber());
+                    (int)learnedSampler->CurrentSampleNumber());
                 L = Spectrum(0.f);
             } else if (std::isinf(L.y())) {
                 LOG(ERROR) << StringPrintf(
@@ -314,7 +313,7 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
                     "for pixel (%d, %d), sample %d. Setting to "
                     "black.",
                     pixel.x, pixel.y,
-                    (int)learnedSampler.CurrentSampleNumber());
+                    (int)learnedSampler->CurrentSampleNumber());
                 L = Spectrum(0.f);
             }
             VLOG(1) << "Camera sample: " << cameraSample << " -> ray: " << ray
@@ -323,13 +322,13 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
             // Add camera ray's contribution to image
             camera->film->AddSplat(
                 cameraSample.pFilm,
-                L / learnedSampler.samplesPerPixel);  // normalize by the spp 
+                L / learnedSampler->samplesPerPixel);  // normalize by the spp 
 						
             // Free _MemoryArena_ memory from computing image sample
             // value
             arena.Reset();
             randSampler->StartNextSample();
-        } while (learnedSampler.StartNextSample());
+        } while (learnedSampler->StartNextSample());
         reporter.Update();
     }
     reporter.Done();
@@ -479,11 +478,13 @@ PSSIntegrator *CreatePSSIntegrator(const ParamSet &params,
 
    
     std::shared_ptr<Sampler> sampler =
-        std::shared_ptr<Sampler>(CreateRandomSampler(params));  
+        std::shared_ptr<Sampler>(CreateRandomSampler(params));     
 
-    LearnedSampler *learnedSampler = new LearnedSampler(ns, maxDepth);
+	std::shared_ptr<LearnedSampler> learnedSampler =
+        std::shared_ptr<LearnedSampler>(new LearnedSampler(ns, maxDepth));
+	// this is probably bad for memory management, I was having some issue with 
 
-    return new PSSIntegrator(maxDepth, camera, sampler, *learnedSampler,
+    return new PSSIntegrator(maxDepth, camera, sampler, learnedSampler,
                              pixBounds, rrThreshold, lightStrategy,
                              pathSampleStrategy, nee);
 }

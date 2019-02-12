@@ -22,7 +22,7 @@ class PSSIntegrator : public Integrator{
     // PSSIntegrator Public Methods
     PSSIntegrator(int maxDepth, std::shared_ptr<const Camera> camera,
                   std::shared_ptr<Sampler> randSampler,
-			      LearnedSampler &learnedSampler, 
+			      std::shared_ptr<LearnedSampler> learnedSampler, 
 				  const Bounds2i &pixelBounds,
                   Float rrThreshold = 1,
                   const std::string &lightSampleStrategy = "spatial",
@@ -58,7 +58,7 @@ protected:
     std::unique_ptr<LightDistribution> lightDistribution;
     Bounds2i pixelBounds;
 
-	LearnedSampler learnedSampler;    
+	std::shared_ptr<LearnedSampler> learnedSampler;    
     std::shared_ptr<Sampler> randSampler;
         
 };
