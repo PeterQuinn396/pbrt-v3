@@ -9,20 +9,18 @@
 namespace pbrt {
 
 LearnedSampler::LearnedSampler(int ns, int maxDepth, int seed)
-    : Sampler(ns), maxDepth(maxDepth), rng(seed) {}
+    : Sampler(ns), maxDepth(maxDepth), rng(seed) {
+
+	// initialize NN stuff here
+
+
+}
 
 Float LearnedSampler::Get1D() {
     // commented out whatever this was
     // ProfilePhase _(Prof::GetSample);
     // CHECK_LT(currentPixelSampleIndex, samplesPerPixel);
     return sample1D;
-}
-
-void testMethod() {
-    torch::Tensor a = torch::ones({2, 2}, torch::requires_grad());
-    torch::Tensor b = torch::randn({2, 2});
-    auto c = a + b;
-    c.backward();
 }
 
 Point2f LearnedSampler::Get2D() {
@@ -63,6 +61,22 @@ void LearnedSampler::GenerateSample(float *pdf) {
     *pdf = 1.f;  // to be changed later to the pdf corresponding to the pss warp
 }
 
+void LearnedSampler::saveSample() {  // save a data sample in a tensor
+	
+	return;
+}
+
+void LearnedSampler::train() { // process the saved data
+
+	// do the resampling procedure 
+
+
+	// train the network
+	return; 
+}
+
+
+
 std::unique_ptr<Sampler> LearnedSampler::Clone(int seed) {
     LearnedSampler *rs = new LearnedSampler(*this);
     rs->rng.SetSequence(seed);
@@ -87,4 +101,9 @@ Sampler *CreateLearnedSampler(const ParamSet &params) {
     int maxDepth = params.FindOneInt("maxdepth", 1);  // maxDepth
     return new LearnedSampler(ns, maxDepth);
 }
+
+
+
+
+// implement the NN
 }  // namespace pbrt

@@ -47,7 +47,7 @@ Spectrum PSSIntegrator::Li(const RayDifferential &r, const Scene &scene,
                            MemoryArena &arena, int depth) const {
     ProfilePhase p(Prof::SamplerIntegratorLi);
     Spectrum L(0.f), beta(1.f);
-    RayDifferential ray(r);  
+    RayDifferential ray(r);
     bool specularBounce = false;
     int bounces = 0;
     Float etaScale = 1;
@@ -105,8 +105,8 @@ Spectrum PSSIntegrator::Li(const RayDifferential &r, const Scene &scene,
             L += Ld;
         }
 
-		if (bounces == maxDepth) break; // break when we hit the maxDepth - 1
-		
+        if (bounces == maxDepth) break;  // break when we hit the maxDepth - 1
+
         // Sample BSDF to get new path direction
         // Change to pull from the generated vector sample
 
@@ -225,22 +225,132 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
 
     // Compute number of tiles, _nTiles_, to use for parallel rendering
     Bounds2i sampleBounds = camera->film->GetSampleBounds();
-    Vector2i sampleExtent = sampleBounds.Diagonal();
-    const int tileSize = 16;  // to change
-    Point2i nTiles((sampleExtent.x + tileSize - 1) / tileSize,
-                   (sampleExtent.y + tileSize - 1) / tileSize);
-    ProgressReporter reporter(
-        camera->film->fullResolution.x * camera->film->fullResolution.y,
-        "Rendering");
+    // Vector2i sampleExtent = sampleBounds.Diagonal();
+    int x_res = camera->film->fullResolution.x;
+    int y_res = camera->film->fullResolution.y;
 
     // rewritten tracing loop
     // single thread
+    bool train = false;
+    if (train) {  // do training phase if needed
+        ProgressReporter reporter(x_res * y_res, "Generating Training Data");
+        for (Point2i pixel : sampleBounds) {  // for each pixel
 
+            MemoryArena arena;
+
+            // initialize/ reset sample counting paramters
+            learnedSampler->StartPixel(pixel);
+            randSampler->StartPixel(pixel);
+
+            // Do this check after the StartPixel() call; this keeps
+            // the usage of RNG values from (most) Samplers that use
+            // RNGs consistent, which improves reproducability /
+            // debugging.
+            if (!InsideExclusive(pixel, pixelBounds)) continue;
+            int seed = pixel.x * pixel.y + pixel.x;  // whatever
+
+            // std::unique_ptr<Sampler> tileSampler = sampler->Clone(seed);
+
+            do {
+                // Initialize _CameraSample_ for current sample
+                // CameraSample cameraSample = sampler->GetCameraSample(pixel);
+
+                // generate the set of samples that will be used to construct
+                // the path save the pdf/jacobian of the warping process
+                float warp_pdf = 1.f;
+
+                learnedSampler->GenerateSample(&warp_pdf);
+
+                CameraSample cameraSample;
+                // adjust the point where the ray goes through
+                cameraSample.pFilm =  // this can be tweaked so the
+                    (Point2f)pixel +
+                    learnedSampler->Get2D();  // choose the coords in the pixel
+                                              // to start from
+                cameraSample.pLens = learnedSampler->Get2D();
+
+                // the way its done in Zwicker paper (I think)
+                // Point2f rand_point = learnedSampler->Get2D();
+                // cameraSample.pFilm = Point2f(x_res*rand_point[0],
+                // y_res*rand_point[1]); // pick point on film
+                // cameraSample.pLens = rand_point;  // direction is also
+                // determined from point on film
+
+                // I don't think these are used for anything
+                cameraSample.time = randSampler->Get1D();
+
+                // Generate camera ray for current sample
+                RayDifferential ray;
+                Float rayWeight =
+                    camera->GenerateRayDifferential(cameraSample, &ray);
+
+                // not exactly sure what this scale factor is doing
+                // makes some difference in the noise pattern
+                ray.ScaleDifferentials(
+                    1 / std::sqrt((Float)learnedSampler->samplesPerPixel));
+                ++nCameraRays;
+
+                // Evaluate radiance along camera ray
+                Spectrum L(0.f);
+                if (rayWeight > 0)
+                    L = Li(ray, scene, *randSampler, *learnedSampler, arena,
+                           maxDepth);
+                // L = Li_standardPath(ray, scene, *randSampler, arena,
+                // maxDepth); // works as expected
+
+                // Issue warning if unexpected radiance value returned
+                if (L.HasNaNs()) {
+                    LOG(ERROR) << StringPrintf(
+                        "Not-a-number radiance value returned "
+                        "for pixel (%d, %d), sample %d. Setting to "
+                        "black.",
+                        pixel.x, pixel.y,
+                        (int)learnedSampler->CurrentSampleNumber());
+                    L = Spectrum(0.f);
+                } else if (L.y() < -1e-5) {
+                    LOG(ERROR) << StringPrintf(
+                        "Negative luminance value, %f, returned "
+                        "for pixel (%d, %d), sample %d. Setting to "
+                        "black.",
+                        L.y(), pixel.x, pixel.y,
+                        (int)learnedSampler->CurrentSampleNumber());
+                    L = Spectrum(0.f);
+                } else if (std::isinf(L.y())) {
+                    LOG(ERROR) << StringPrintf(
+                        "Infinite luminance value returned "
+                        "for pixel (%d, %d), sample %d. Setting to "
+                        "black.",
+                        pixel.x, pixel.y,
+                        (int)learnedSampler->CurrentSampleNumber());
+                    L = Spectrum(0.f);
+                }
+                VLOG(1) << "Camera sample: " << cameraSample
+                        << " -> ray: " << ray << " -> L = " << L;
+
+                // save camera ray contribution if more than 0 to training data
+                // Add camera ray's contribution to image	-> to remove
+                camera->film->AddSplat(
+                    cameraSample.pFilm,
+                    L / learnedSampler
+                            ->samplesPerPixel);  // normalize by the spp
+
+                // Free _MemoryArena_ memory from computing image sample
+                // value
+                arena.Reset();
+                randSampler->StartNextSample();
+            } while (learnedSampler->StartNextSample());
+            reporter.Update();
+        }
+        reporter.Done();
+    }  // end train
+
+    // eval mode
+    ProgressReporter render_reporter(x_res * y_res, "Rendering");
     for (Point2i pixel : sampleBounds) {  // for each pixel
 
         MemoryArena arena;
 
-		// initialize/ reset sample counting paramters
+        // initialize/ reset sample counting paramters
         learnedSampler->StartPixel(pixel);
         randSampler->StartPixel(pixel);
 
@@ -257,22 +367,29 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
             // Initialize _CameraSample_ for current sample
             // CameraSample cameraSample = sampler->GetCameraSample(pixel);
 
-            // generate the set of samples that will be used to construct the
-            // path save the pdf/jacobian of the warping process
+            // generate the set of samples that will be used to construct
+            // the path save the pdf/jacobian of the warping process
             float warp_pdf = 1.f;
-            
+
             learnedSampler->GenerateSample(&warp_pdf);
 
             CameraSample cameraSample;
-            cameraSample.pFilm =
+            // adjust the point where the ray goes through
+            cameraSample.pFilm =  // this can be tweaked so the
                 (Point2f)pixel +
-                learnedSampler->Get2D();  // choose the coords in the pixel to start from
+                learnedSampler->Get2D();  // choose the coords in the pixel
+                                          // to start from
+            cameraSample.pLens = learnedSampler->Get2D();
 
-			cameraSample.pLens = learnedSampler->Get2D();
+            // the way its done in Zwicker paper (I think)
+            // Point2f rand_point = learnedSampler->Get2D();
+            // cameraSample.pFilm = Point2f(x_res*rand_point[0],
+            // y_res*rand_point[1]); // pick point on film
+            // cameraSample.pLens = rand_point;  // direction is also
+            // determined from point on film
 
             // I don't think these are used for anything
             cameraSample.time = randSampler->Get1D();
-            
 
             // Generate camera ray for current sample
             RayDifferential ray;
@@ -280,15 +397,17 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
                 camera->GenerateRayDifferential(cameraSample, &ray);
 
             // not exactly sure what this scale factor is doing
-			// makes some difference in the noise pattern
-            ray.ScaleDifferentials(1 / std::sqrt((Float)learnedSampler->samplesPerPixel));
+            // makes some difference in the noise pattern
+            ray.ScaleDifferentials(
+                1 / std::sqrt((Float)learnedSampler->samplesPerPixel));
             ++nCameraRays;
 
             // Evaluate radiance along camera ray
             Spectrum L(0.f);
             if (rayWeight > 0)
-                 L = Li(ray, scene, *randSampler, *learnedSampler, arena, maxDepth);
-               // L = Li_standardPath(ray, scene, *randSampler, arena, maxDepth); // works as expected
+                L = Li(ray, scene, *randSampler, *learnedSampler, arena,
+                       maxDepth);
+           
 
             // Issue warning if unexpected radiance value returned
             if (L.HasNaNs()) {
@@ -322,130 +441,19 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
             // Add camera ray's contribution to image
             camera->film->AddSplat(
                 cameraSample.pFilm,
-                L / learnedSampler->samplesPerPixel);  // normalize by the spp 
-						
+                L / learnedSampler->samplesPerPixel);  // normalize by the spp
+
             // Free _MemoryArena_ memory from computing image sample
             // value
             arena.Reset();
             randSampler->StartNextSample();
         } while (learnedSampler->StartNextSample());
-        reporter.Update();
+        render_reporter.Update();
     }
-    reporter.Done();
+
     // Save final image after rendering
     camera->film->WriteImage();
-
-    // -------------------------------------------
-
-    //
-    //    ParallelFor2D(
-    //        [&](Point2i tile) {
-    //            // Render section of image corresponding to _tile_
-
-    //            // Allocate _MemoryArena_ for tile
-    //            MemoryArena arena;
-
-    //            // Get sampler instance for tile
-    //            int seed = tile.y * nTiles.x + tile.x;
-    //            std::unique_ptr<Sampler> tileSampler = sampler->Clone(seed);
-
-    //            // Compute sample bounds for tile
-    //            int x0 = sampleBounds.pMin.x + tile.x * tileSize;
-    //            int x1 = std::min(x0 + tileSize, sampleBounds.pMax.x);
-    //            int y0 = sampleBounds.pMin.y + tile.y * tileSize;
-    //            int y1 = std::min(y0 + tileSize, sampleBounds.pMax.y);
-    //            Bounds2i tileBounds(Point2i(x0, y0), Point2i(x1, y1));
-    //            LOG(INFO) << "Starting image tile " << tileBounds;
-
-    //            // Get _FilmTile_ for tile
-    //            std::unique_ptr<FilmTile> filmTile =
-    //                camera->film->GetFilmTile(tileBounds);
-
-    //            // Loop over pixels in tile to render them
-    //            for (Point2i pixel : tileBounds) {
-    //                {
-    //                    ProfilePhase pp(Prof::StartPixel);
-    //                    tileSampler->StartPixel(pixel);
-    //                }
-
-    //                // Do this check after the StartPixel() call; this keeps
-    //                // the usage of RNG values from (most) Samplers that use
-    //                // RNGs consistent, which improves reproducability /
-    //                // debugging.
-    //                if (!InsideExclusive(pixel, pixelBounds)) continue;
-
-    //                do {
-    //                    // Initialize _CameraSample_ for current sample
-    //                    CameraSample cameraSample =
-    //                        tileSampler->GetCameraSample(pixel);
-
-    //                    // Generate camera ray for current sample
-    //                    RayDifferential ray;
-    //                    Float rayWeight =
-    //                        camera->GenerateRayDifferential(cameraSample,
-    //                        &ray);
-    //                    ray.ScaleDifferentials(
-    //                        1 /
-    //                        std::sqrt((Float)tileSampler->samplesPerPixel));
-    //                    ++nCameraRays;
-
-    //                    // Evaluate radiance along camera ray
-    //                    Spectrum L(0.f);
-    //                    if (rayWeight > 0)
-    //                        L = Li(ray, scene, *tileSampler, arena, maxDepth);
-
-    //                    // Issue warning if unexpected radiance value returned
-    //                    if (L.HasNaNs()) {
-    //                        LOG(ERROR) << StringPrintf(
-    //                            "Not-a-number radiance value returned "
-    //                            "for pixel (%d, %d), sample %d. Setting to "
-    //                            "black.",
-    //                            pixel.x, pixel.y,
-    //                            (int)tileSampler->CurrentSampleNumber());
-    //                        L = Spectrum(0.f);
-    //                    } else if (L.y() < -1e-5) {
-    //                        LOG(ERROR) << StringPrintf(
-    //                            "Negative luminance value, %f, returned "
-    //                            "for pixel (%d, %d), sample %d. Setting to "
-    //                            "black.",
-    //                            L.y(), pixel.x, pixel.y,
-    //                            (int)tileSampler->CurrentSampleNumber());
-    //                        L = Spectrum(0.f);
-    //                    } else if (std::isinf(L.y())) {
-    //                        LOG(ERROR) << StringPrintf(
-    //                            "Infinite luminance value returned "
-    //                            "for pixel (%d, %d), sample %d. Setting to "
-    //                            "black.",
-    //                            pixel.x, pixel.y,
-    //                            (int)tileSampler->CurrentSampleNumber());
-    //                        L = Spectrum(0.f);
-    //                    }
-    //                    VLOG(1) << "Camera sample: " << cameraSample
-    //                            << " -> ray: " << ray << " -> L = " << L;
-
-    //                    // Add camera ray's contribution to image
-    //                    filmTile->AddSample(cameraSample.pFilm, L, rayWeight);
-
-    //                    // Free _MemoryArena_ memory from computing image
-    //                    sample
-    //                    // value
-    //                    arena.Reset();
-    //                } while (tileSampler->StartNextSample());
-    //            }
-    //            LOG(INFO) << "Finished image tile " << tileBounds;
-
-    //            // Merge image tile into _Film_
-    //            camera->film->MergeFilmTile(std::move(filmTile));
-    //            reporter.Update();
-    //        },
-    //        nTiles);
-    //    reporter.Done();
-    //}
-    // LOG(INFO) << "Rendering finished";
-
-    //// Save final image after rendering
-    // camera->film->WriteImage();
-    // --------------------------------------------------------------
+    render_reporter.Done();
 }
 
 PSSIntegrator *CreatePSSIntegrator(const ParamSet &params,
@@ -474,25 +482,23 @@ PSSIntegrator *CreatePSSIntegrator(const ParamSet &params,
         params.FindOneString("pathsamplestrategy", "bsdf");
     bool nee = params.FindOneBool("usenee", true);
 
-	  int ns = params.FindOneInt("pixelsamples", 4);
+    int ns = params.FindOneInt("pixelsamples", 4);
 
-   
     std::shared_ptr<Sampler> sampler =
-        std::shared_ptr<Sampler>(CreateRandomSampler(params));     
+        std::shared_ptr<Sampler>(CreateRandomSampler(params));
 
-	std::shared_ptr<LearnedSampler> learnedSampler =
+    std::shared_ptr<LearnedSampler> learnedSampler =
         std::shared_ptr<LearnedSampler>(new LearnedSampler(ns, maxDepth));
-	// this is probably bad for memory management, I was having some issue with 
+    // this is probably bad for memory management, I was having some issue with
 
     return new PSSIntegrator(maxDepth, camera, sampler, learnedSampler,
                              pixBounds, rrThreshold, lightStrategy,
                              pathSampleStrategy, nee);
 }
 
-
-Spectrum PSSIntegrator::Li_standardPath(const RayDifferential &r, const Scene &scene,
-                            Sampler &sampler, MemoryArena &arena,
-                            int depth) const {
+Spectrum PSSIntegrator::Li_standardPath(const RayDifferential &r,
+                                        const Scene &scene, Sampler &sampler,
+                                        MemoryArena &arena, int depth) const {
     ProfilePhase p(Prof::SamplerIntegratorLi);
     Spectrum L(0.f), beta(1.f);
     RayDifferential ray(r);
@@ -615,6 +621,5 @@ Spectrum PSSIntegrator::Li_standardPath(const RayDifferential &r, const Scene &s
     ReportValue(pathLength, bounces);
     return L;
 }
-
 
 }  // namespace pbrt
