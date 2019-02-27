@@ -10,7 +10,10 @@ using namespace torch::nn;
 namespace pbrt {
 
 LearnedSampler::LearnedSampler(int ns, int maxDepth, int seed)
-    : Sampler(ns), maxDepth(maxDepth), rng(seed) {
+    : Sampler(ns),
+      maxDepth(maxDepth),
+      rng(seed),
+      num_features(2 * (maxDepth + 2) + 1) {
     // initialize NN stuff here
 }
 
@@ -59,16 +62,74 @@ void LearnedSampler::GenerateSample(float *pdf) {
     *pdf = 1.f;  // to be changed later to the pdf corresponding to the pss warp
 }
 
-void LearnedSampler::saveSample() {  // save a data sample in a tensor
-
+void LearnedSampler::saveSample(
+    float Li) {  // save a data sample in a vector b/c we want things to be
+                 // dynamic (possibly foolishly)
+                 // create an array
+    std::vector<float> vec;
+    int i = 0;
+    for (Point2f sample : samples2D) {
+        vec.emplace_back(sample.x);
+        vec.emplace_back(sample.y);
+    }
+    vec.emplace_back(sample1D);
+    savedData_vec.emplace_back(vec);
     return;
 }
 
 void LearnedSampler::train() {  // process the saved data
 
-    // do the resampling procedure
+    // convert saved data to a tensor
+    int rows = savedData_vec.size();
+    savedData_tensor = torch::empty(rows * num_features);
+    float *data = savedData_tensor.data<float>();
 
-    // train the network
+    // iterate over all vals in the vec
+    // and store properly in the tensor
+    for (const auto &i : savedData_vec) {
+        for (const auto &j : i) {
+            *data++ = j;
+        }
+    }
+
+    // do the resampling procedure
+    torch::Tensor cleaned_data = savedData_tensor;
+
+    // prepare data loader
+    torch::data::DataLoaderOptions options;
+    options.batch_size = 100;
+    options.workers = 4;
+    // options.enforce_ordering = false; // possible optimization in the future
+    auto dataloader = torch::data::make_data_loader(savedData_tensor, options);
+
+    // create and train the network
+    net = RealNVP(num_features);  // initialize network
+
+    torch::optim::Adam optimizer(net.parameters(), /*lr = */ .01);
+
+    for (size_t epoch = 1; epoch <= 5; ++epoch) {
+        size_t batch_ind = 0;
+
+        // iterate the dataloader to get the batches
+        for (auto &batch : *dataloader) {
+            // reset grads
+            optimizer.zero_grad();
+            // Run model, compute loss
+            torch::Tensor loss = net.logProb(*batch);
+            loss.backward();
+            optimizer.step();
+
+			if (++batch_ind % 100 == 0) {
+                std::cout << "Epoch: " << epoch << " | Batch: " << batch_ind
+                          << " | Loss: " << loss.item<float>() << std::endl;
+                // Serialize your model periodically as a checkpoint.
+                torch::save(net, "net.pt");
+            }
+		}
+        
+
+    }
+
     return;
 }
 
@@ -99,7 +160,7 @@ Sampler *CreateLearnedSampler(const ParamSet &params) {
 
 // implement the NN
 
-RealNVP::RealNVP(int _num_dim): torch::nn::Module() {
+RealNVP::RealNVP(int _num_dim) : torch::nn::Module() {
     int num_dim = 5;
     prior = new MultivariateNormal(num_dim);
 
@@ -168,7 +229,7 @@ torch::Tensor RealNVP::f(
 torch::Tensor RealNVP::g(torch::Tensor z) {  // map from latent to primary space
     auto x = z;
     // iterate over layers backwards
-    for (int i = num_layers - 1; i >= 0; --i) {  
+    for (int i = num_layers - 1; i >= 0; --i) {
         auto x_ = masks[i] * x;
         auto s_ = s[i]->forward(x_) * (1 - masks[i]);
         auto t_ = t[i]->forward(x_) * (1 - masks[i]);
@@ -177,10 +238,11 @@ torch::Tensor RealNVP::g(torch::Tensor z) {  // map from latent to primary space
     return x;
 }
 
-torch::Tensor RealNVP::logProb(torch::Tensor x) { 
-	// compute the log prob of a sample in primary space based on prior dist and learned parameters
+torch::Tensor RealNVP::logProb(torch::Tensor x) {
+    // compute the log prob of a sample in primary space based on prior dist and
+    // learned parameters
     torch::Tensor *log_det_jac;
-	auto z = f(x, log_det_jac);
+    auto z = f(x, log_det_jac);
     torch::Tensor prior_log_prob = prior->logProb(x);
     return (*log_det_jac) + prior_log_prob;
 }
