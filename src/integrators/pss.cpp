@@ -277,7 +277,7 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
                 // determined from point on film
 
                 // I don't think these are used for anything
-                cameraSample.time = randSampler->Get1D();
+                cameraSample.time = randSampler->Get1D(); // replace w/ 0 or something
 
                 // Generate camera ray for current sample
                 RayDifferential ray;

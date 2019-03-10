@@ -13,9 +13,8 @@ LearnedSampler::LearnedSampler(int ns, int maxDepth, int seed)
     : Sampler(ns),
       maxDepth(maxDepth),
       rng(seed),
-      num_features(2 * (maxDepth + 2) + 1) {
-    // initialize NN stuff here
-}
+      num_features(2 * (maxDepth + 2) + 1),
+      net(RealNVP(2 * (maxDepth + 2) + 1)){};
 
 Float LearnedSampler::Get1D() {
     // commented out whatever this was
@@ -63,7 +62,8 @@ void LearnedSampler::GenerateSample(float *pdf) {
 }
 
 void LearnedSampler::saveSample(
-    float Li) {  // save a data sample in a vector b/c we want things to be
+    float Li) {  // use the Li.length to get float
+                 // save a data sample in a vector b/c we want things to be
                  // dynamic (possibly foolishly)
                  // create an array
     std::vector<float> vec;
@@ -73,6 +73,7 @@ void LearnedSampler::saveSample(
         vec.emplace_back(sample.y);
     }
     vec.emplace_back(sample1D);
+    vec.emplace_back(Li);
     savedData_vec.emplace_back(vec);
     return;
 }
@@ -81,7 +82,7 @@ void LearnedSampler::train() {  // process the saved data
 
     // convert saved data to a tensor
     int rows = savedData_vec.size();
-    savedData_tensor = torch::empty(rows * num_features);
+    savedData_tensor = torch::empty(rows * num_features+1); //double check this
     float *data = savedData_tensor.data<float>();
 
     // iterate over all vals in the vec
@@ -90,10 +91,55 @@ void LearnedSampler::train() {  // process the saved data
         for (const auto &j : i) {
             *data++ = j;
         }
-    }
+    } 
 
-    // do the resampling procedure
+	savedData_tensor.resize_({rows, num_features});
+
+    // get and set device
+    c10::DeviceType device;
+    if (torch::cuda::is_available) {
+        device = c10::DeviceType::CUDA;
+    } else {
+        device = c10::DeviceType::CPU;
+    }
+    printf("Running on: %s", device);
+
+    // do the resampling procedure <--------------
     torch::Tensor cleaned_data = savedData_tensor;
+    cleaned_data.to(device);
+
+    // compute weights for the resampling based on the illumination seen
+    int num_data_points = cleaned_data.size[0];
+    torch::Tensor resample_rands = torch::randn(num_data_points);
+    int data_point_dim = cleaned_data.size[1];
+    torch::Tensor weights = cleaned_data.narrow(2, data_point_dim - 1, data_point_dim - 1)/resample_rands;
+	// do weighted sampling
+    weights = weights / weights.sum(); //normalize
+
+	int num_of_resamples = 10000; // to optimize
+    torch::Tensor samples = torch::empty(num_of_resamples * num_features);
+    float rand; 
+	int j=0;
+    float *sample_ptr = samples.data<float>();
+    float *weight_ptr = weights.data<float>();
+    float accumulated_sum = 0;
+	for (int i = 0; i < num_of_resamples; i++) {
+        rand = rng.UniformFloat(); // get random num
+        j = 0;
+        accumulated_sum = *weight_ptr; //first weight
+        while (accumulated_sum < rand) {
+            weight_ptr++;
+            accumulated_sum += *weight_ptr; // add next weight
+            j++; // current index
+		}
+		// add sample at index j to sample tensor
+                *sample_ptr = cleaned_data[j];
+
+
+	}
+ 
+
+    samples.resize_({num_of_resamples, num_features});
 
     // prepare data loader
     torch::data::DataLoaderOptions options;
@@ -103,9 +149,10 @@ void LearnedSampler::train() {  // process the saved data
     auto dataloader = torch::data::make_data_loader(savedData_tensor, options);
 
     // create and train the network
-    net = RealNVP(num_features);  // initialize network
 
-    torch::optim::Adam optimizer(net.parameters(), /*lr = */ .01);
+    net.to(device);
+    net.train();
+    torch::optim::Adam optimizer(net.parameters(), /*lr = */ .001);
 
     for (size_t epoch = 1; epoch <= 5; ++epoch) {
         size_t batch_ind = 0;
@@ -119,17 +166,15 @@ void LearnedSampler::train() {  // process the saved data
             loss.backward();
             optimizer.step();
 
-			if (++batch_ind % 100 == 0) {
+            if (++batch_ind % 100 == 0) {
                 std::cout << "Epoch: " << epoch << " | Batch: " << batch_ind
                           << " | Loss: " << loss.item<float>() << std::endl;
                 // Serialize your model periodically as a checkpoint.
                 torch::save(net, "net.pt");
             }
-		}
-        
-
+        }
     }
-
+    net.eval();
     return;
 }
 

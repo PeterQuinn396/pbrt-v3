@@ -25,7 +25,7 @@ class LearnedSampler : public Sampler {
     Point2f GetRand2D();
 
     void train();
-    void saveSample();
+    void saveSample(float Li);
 
     std::unique_ptr<Sampler> Clone(int seed);
     bool trainMode = true;
@@ -36,6 +36,12 @@ class LearnedSampler : public Sampler {
     int maxDepth;
     std::vector<Point2f> samples2D;
     Float sample1D;
+    int num_features;
+
+	torch::Tensor savedData_tensor;
+    std::vector<std::vector<float>> savedData_vec;
+    RealNVP net;
+     
 };
 
 class RealNVP : public torch::nn::Module {
