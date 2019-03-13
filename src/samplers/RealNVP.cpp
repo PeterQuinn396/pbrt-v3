@@ -1,10 +1,14 @@
+#pragma once
+
 #include "RealNVP.h"
 #include "torch/torch.h"
+
+
 
 // implement the NN
 using namespace torch::nn;
 RealNVP::RealNVP(int _num_dim) : torch::nn::Module() {
-    int num_dim = 5;
+    int num_dim = _num_dim;
     prior = new MultivariateNormal(num_dim);
 
     torch::Tensor mask_even = torch::tensor({1.f, 0.f, 1.f, 0.f, 1.f});
@@ -12,9 +16,18 @@ RealNVP::RealNVP(int _num_dim) : torch::nn::Module() {
 
     // construct the different layers
     // each is a seperate NN
+
+    /*torch::nn::Sequential seq(torch::nn::Linear(3, 4), torch::nn::BatchNorm(4),
+                              torch::nn::Dropout(0.5));*/
+
+    Sequential test = Sequential();
+    auto layer1 = BatchNorm(5);
+    test->push_back(layer1);
+    test->push_back(Linear(5, 40));
+
     for (int i = 0; i < num_layers; ++i) {
         // scale NN
-        auto net_s = Sequential(
+        Sequential net_s(
             BatchNorm(num_dim), Linear(num_dim, num_neurons),
             BatchNorm(num_neurons), Functional(torch::relu),  // input block
             Linear(num_neurons, num_neurons), BatchNorm(num_neurons),
@@ -26,7 +39,7 @@ RealNVP::RealNVP(int _num_dim) : torch::nn::Module() {
             Functional(torch::tanh));  // end block
 
         // translate NN
-        auto net_t = Sequential(
+        Sequential net_t(
             BatchNorm(num_dim), Linear(num_dim, num_neurons),
             BatchNorm(num_neurons), Functional(torch::relu),  // input block
             Linear(num_dim, num_neurons), BatchNorm(num_neurons),
@@ -86,7 +99,7 @@ torch::Tensor RealNVP::logProb(torch::Tensor x) {
     // learned parameters
     torch::Tensor *log_det_jac;
     auto z = f(x, log_det_jac);
-    torch::Tensor prior_log_prob = prior->logProb(x);
+    torch::Tensor prior_log_prob = prior->logProb(z);
     return (*log_det_jac) + prior_log_prob;
 }
 

@@ -32,7 +32,7 @@ class PSSIntegrator : public Integrator{
     void Preprocess(const Scene &scene, Sampler &sampler);
 
     Spectrum Li(const RayDifferential &ray, const Scene &scene,
-                Sampler &randSampler, LearnedSampler &learnedSampler, MemoryArena &arena, int depth) const;
+                Sampler &randSampler, LearnedSampler &learnedSampler, MemoryArena &arena, int depth, bool train) const;
 
 	Spectrum Li_standardPath(const RayDifferential &r,
                                             const Scene &scene,

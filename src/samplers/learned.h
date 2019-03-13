@@ -14,6 +14,7 @@
 #include "torch/torch.h"
 #include "RealNVP.h"
 
+
 namespace pbrt {
 
 class LearnedSampler : public Sampler {

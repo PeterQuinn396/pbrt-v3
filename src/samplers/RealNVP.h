@@ -3,6 +3,7 @@
 #include "torch/torch.h"
 #include "MultivariateNormal.h"
 
+
 class RealNVP : public torch::nn::Module {
 public:
 	RealNVP(int num_dim);

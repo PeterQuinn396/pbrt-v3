@@ -44,7 +44,7 @@ void PSSIntegrator::Preprocess(const Scene &scene, Sampler &sampler) {
 
 Spectrum PSSIntegrator::Li(const RayDifferential &r, const Scene &scene,
                            Sampler &randSampler, LearnedSampler &learnedSampler,
-                           MemoryArena &arena, int depth) const {
+                           MemoryArena &arena, int depth, bool train) const {
     ProfilePhase p(Prof::SamplerIntegratorLi);
     Spectrum L(0.f), beta(1.f);
     RayDifferential ray(r);
@@ -92,20 +92,51 @@ Spectrum PSSIntegrator::Li(const RayDifferential &r, const Scene &scene,
         // Sample illumination from lights to find path contribution/
         // But skip for perfectly specfular BSDFs
         // modified to only do this sampling if we at the end of our path
-        if (i.bsdf->NumComponents(BxDFType(BSDF_ALL & ~BSDF_SPECULAR)) > 0 &&
-            (bounces == maxDepth || usenee)) {  // <--- changed
-            ++totalPaths;
-            Spectrum Ld = beta * UniformSampleOneLight(
-                                     i, scene, arena, randSampler,  // to change
-                                     false, distrib);
+        if (i.bsdf->NumComponents(BxDFType(BSDF_ALL & ~BSDF_SPECULAR)) >
+            0) {  // <--- changed
+                  // for generating the training data we only do the explicit
+                  // connection on the last bounce
+            if (train && bounces == maxDepth) {
+                Spectrum Ld =
+                    beta * UniformSampleOneLight(i, scene, arena,
+                                                 learnedSampler,  // to change
+                                                 false, distrib);
 
-            VLOG(2) << "Sampled direct lighting Ld = " << Ld;
-            if (Ld.IsBlack()) ++zeroRadiancePaths;
-            CHECK_GE(Ld.y(), 0.f);
-            L += Ld;
+                VLOG(2) << "Sampled direct lighting Ld = " << Ld;
+                if (Ld.IsBlack()) ++zeroRadiancePaths;
+                CHECK_GE(Ld.y(), 0.f);
+                L += Ld;
+            } else if (!train) {
+                // not training, so check if we are at the
+                // last bounce or using nee
+                if (bounces == maxDepth) {
+                    ++totalPaths;
+                    Spectrum Ld = beta * UniformSampleOneLight(
+                                             i, scene, arena,
+                                             learnedSampler,  // to change
+                                             false, distrib);
+
+                    VLOG(2) << "Sampled direct lighting Ld = " << Ld;
+                    if (Ld.IsBlack()) ++zeroRadiancePaths;
+                    CHECK_GE(Ld.y(), 0.f);
+                    L += Ld;
+
+                } else if (usenee) {
+                    ++totalPaths;
+                    Spectrum Ld =
+                        beta * UniformSampleOneLight(i, scene, arena,
+                                                     randSampler,  // to change
+                                                     false, distrib);
+
+                    VLOG(2) << "Sampled direct lighting Ld = " << Ld;
+                    if (Ld.IsBlack()) ++zeroRadiancePaths;
+                    CHECK_GE(Ld.y(), 0.f);
+                    L += Ld;
+                }
+            }
         }
 
-        if (bounces == maxDepth) break;  // break when we hit the maxDepth - 1
+        if (bounces == maxDepth) break;  // break when we hit the maxDepth 
 
         // Sample BSDF to get new path direction
         // Change to pull from the generated vector sample
@@ -115,19 +146,20 @@ Spectrum PSSIntegrator::Li(const RayDifferential &r, const Scene &scene,
         // sample a uniform hemisphere instead?
         // warp to uniform hemisphere
         Float pdf;
-        BxDFType flags;
+        BxDFType flags= BxDFType::BSDF_DIFFUSE; // should set this to a clear initial value
 
         Spectrum f;
         Point2f rand2D = learnedSampler.Get2D();
 
-        // -------------------------------------- Can use to compare different
+        // -------------------------------------- 
+		// Can use to compare different
         // sampling strategies for example, is it better to learn to
         // sample/select paths from a unifrom hemisphere, or do we
         // preweight/bias it by cosine/bsdf?
         if (pathSampleStrategy == "uniform") {
             wi = i.bsdf->LocalToWorld(UniformSampleHemisphere(rand2D));
             pdf = UniformHemispherePdf();
-            f = i.bsdf->f(wo, wi);
+            f = i.bsdf->f(wo, wi);			
         } else if (pathSampleStrategy == "cosine") {
             wi = CosineSampleHemisphere(rand2D);
             pdf = CosineHemispherePdf(wi.z);  // local
@@ -135,17 +167,14 @@ Spectrum PSSIntegrator::Li(const RayDifferential &r, const Scene &scene,
             f = i.bsdf->f(wo, wi);
         } else if (pathSampleStrategy == "bsdf") {
             f = i.bsdf->Sample_f(wo, &wi, rand2D, &pdf, BSDF_ALL,
-                                 &flags);  // remove pdf from here?
+                                 &flags);  
         } else {
             Error("Invalid path construction parameter specified: \"%s\"",
                   pathSampleStrategy);
             exit(2);
         }
 
-        // Spectrum f = i.bsdf->Sample_f(wo, &wi, sampler.Get2D(), &pdf,
-        // BSDF_ALL,
-        //                              &flags);  // remove pdf from here?
-
+       
         // ----------------------------------------
 
         VLOG(2) << "Sampled BSDF, f = " << f << ", pdf = " << pdf;
@@ -217,7 +246,7 @@ Spectrum PSSIntegrator::Li(const RayDifferential &r, const Scene &scene,
     ReportValue(pathLength, bounces);
     return L;  // will have to divide out by the proper pdf we get from our PSS
                // sampling strategy
-}
+}  // namespace pbrt
 
 void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
 
@@ -233,7 +262,8 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
     // single thread
     bool train = true;
     if (train) {  // do training phase if needed
-		// generate training data
+                  // generate training data
+        int sampleCount = 0;
         ProgressReporter reporter(x_res * y_res, "Generating Training Data");
         for (Point2i pixel : sampleBounds) {  // for each pixel
 
@@ -264,18 +294,18 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
 
                 CameraSample cameraSample;
                 // adjust the point where the ray goes through
-                cameraSample.pFilm =  // this can be tweaked so the
-                    (Point2f)pixel +
-                    learnedSampler->Get2D();  // choose the coords in the pixel
-                                              // to start from
-                cameraSample.pLens = learnedSampler->Get2D();
+                //cameraSample.pFilm =  // this can be tweaked so the
+                //    (Point2f)pixel +
+                //    learnedSampler->Get2D();  // choose the coords in the pixel
+                //                              // to start from
+                //cameraSample.pLens = learnedSampler->Get2D();
 
                 // the way its done in Zwicker paper (I think)
-                // Point2f rand_point = learnedSampler->Get2D();
-                // cameraSample.pFilm = Point2f(x_res*rand_point[0],
-                // y_res*rand_point[1]); // pick point on film
-                // cameraSample.pLens = rand_point;  // direction is also
-                // determined from point on film
+                 Point2f rand_point = learnedSampler->Get2D();
+                 cameraSample.pFilm = Point2f(x_res*rand_point[0],
+                 y_res*rand_point[1]); // pick point on film
+                 cameraSample.pLens = rand_point;  // direction is also
+                 // determined from point on film
 
                 // I don't think these are used for anything
                 cameraSample.time =
@@ -296,8 +326,7 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
                 Spectrum L(0.f);
                 if (rayWeight > 0)
                     L = Li(ray, scene, *randSampler, *learnedSampler, arena,
-                           maxDepth);
-                
+                           maxDepth, train);
 
                 // Issue warning if unexpected radiance value returned
                 if (L.HasNaNs()) {
@@ -332,7 +361,8 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
                 if (!L.IsBlack()) {
                     float Li_max_component_val = L.MaxComponentValue();
                     learnedSampler->saveSample(Li_max_component_val);
-                }                          
+                    sampleCount++;
+                }
 
                 // Free _MemoryArena_ memory from computing image sample
                 // value
@@ -342,13 +372,16 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
             reporter.Update();
         }
         reporter.Done();
-		// train network
+        // train network
+        printf("Number of samples generated: %i", sampleCount);
+
         learnedSampler->train();
-       
+
     }  // end train
 
     // eval mode
     learnedSampler->setEval();
+    train = false;
     ProgressReporter render_reporter(x_res * y_res, "Rendering");
     for (Point2i pixel : sampleBounds) {  // for each pixel
 
@@ -379,18 +412,18 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
 
             CameraSample cameraSample;
             // adjust the point where the ray goes through
-            cameraSample.pFilm =  // this can be tweaked so the
-                (Point2f)pixel +
-                learnedSampler->Get2D();  // choose the coords in the pixel
-                                          // to start from
-            cameraSample.pLens = learnedSampler->Get2D();
+            //cameraSample.pFilm =  // this can be tweaked so the
+            //    (Point2f)pixel +
+            //    learnedSampler->Get2D();  // choose the coords in the pixel
+            //                              // to start from
+            //cameraSample.pLens = learnedSampler->Get2D();
 
             // the way its done in Zwicker paper (I think)
-            // Point2f rand_point = learnedSampler->Get2D();
-            // cameraSample.pFilm = Point2f(x_res*rand_point[0],
-            // y_res*rand_point[1]); // pick point on film
-            // cameraSample.pLens = rand_point;  // direction is also
-            // determined from point on film
+             Point2f rand_point = learnedSampler->Get2D();
+             cameraSample.pFilm = Point2f(x_res*rand_point[0],
+             y_res*rand_point[1]); // pick point on film
+             cameraSample.pLens = rand_point;  // direction is also
+											   // determined from point on film
 
             // I don't think these are used for anything
             cameraSample.time = randSampler->Get1D();
@@ -410,7 +443,7 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
             Spectrum L(0.f);
             if (rayWeight > 0)
                 L = Li(ray, scene, *randSampler, *learnedSampler, arena,
-                       maxDepth);
+                       maxDepth, train);
 
             // Issue warning if unexpected radiance value returned
             if (L.HasNaNs()) {
@@ -492,7 +525,6 @@ PSSIntegrator *CreatePSSIntegrator(const ParamSet &params,
 
     std::shared_ptr<LearnedSampler> learnedSampler =
         std::shared_ptr<LearnedSampler>(new LearnedSampler(ns, maxDepth));
-   
 
     return new PSSIntegrator(maxDepth, camera, sampler, learnedSampler,
                              pixBounds, rrThreshold, lightStrategy,

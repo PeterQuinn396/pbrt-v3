@@ -14,13 +14,14 @@ LearnedSampler::LearnedSampler(int ns, int maxDepth, int seed)
     : Sampler(ns),
       maxDepth(maxDepth),
       rng(seed),
-      num_features(2 * (maxDepth + 2) + 1),
-      net(RealNVP(2 * (maxDepth + 2) + 1)){};
+      num_features(2 * (maxDepth) + 1),
+      net(RealNVP(2 * (maxDepth) + 1)){};
 
 Float LearnedSampler::Get1D() {
     // commented out whatever this was
     // ProfilePhase _(Prof::GetSample);
     // CHECK_LT(currentPixelSampleIndex, samplesPerPixel);
+    CHECK_EQ(sampleNum, maxDepth); // these should be equal when this sample gets used
     return sample1D;
 }
 
@@ -29,7 +30,7 @@ Point2f LearnedSampler::Get2D() {
     // CHECK_LT(currentPixelSampleIndex, samplesPerPixel);
     CHECK_LT(
         sampleNum,
-        maxDepth + 2);  // error if we try to grab more samples than generated
+        maxDepth);  // error if we try to grab more samples than generated
     return samples2D[sampleNum++];  // get the current sample pair and increment
                                     // sample count
 }
@@ -50,7 +51,7 @@ void LearnedSampler::GenerateSample(float *pdf) {
     // the number of bounce points, not segments
 
     if (!eval) {
-        for (int i = 0; i < maxDepth + 2; ++i) {
+        for (int i = 0; i < maxDepth; ++i) {
             Point2f _sample = {
                 rng.UniformFloat(),
                 rng.UniformFloat()};  // generate a random point for now
