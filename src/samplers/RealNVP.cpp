@@ -3,8 +3,6 @@
 #include "RealNVP.h"
 #include "torch/torch.h"
 
-
-
 // implement the NN
 using namespace torch::nn;
 RealNVP::RealNVP(int _num_dim) : torch::nn::Module() {
@@ -19,12 +17,7 @@ RealNVP::RealNVP(int _num_dim) : torch::nn::Module() {
 
     /*torch::nn::Sequential seq(torch::nn::Linear(3, 4), torch::nn::BatchNorm(4),
                               torch::nn::Dropout(0.5));*/
-
-    Sequential test = Sequential();
-    auto layer1 = BatchNorm(5);
-    test->push_back(layer1);
-    test->push_back(Linear(5, 40));
-
+	
     for (int i = 0; i < num_layers; ++i) {
         // scale NN
         Sequential net_s(

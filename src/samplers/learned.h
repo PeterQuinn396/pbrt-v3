@@ -8,26 +8,35 @@
 #define PBRT_SAMPLERS_LEARNED_H
 
 // samplers/random.h*
-#include <random>  // for gaussian
+
+#ifdef _DEBUG
+#undef _DEBUG
+#include <Python.h>
+#define _DEBUG
+#else
+#include <Python.h>
+#endif
+
 #include "rng.h"
 #include "sampler.h"
-#include "torch/torch.h"
-#include "RealNVP.h"
-
 
 namespace pbrt {
 
 class LearnedSampler : public Sampler {
   public:
     LearnedSampler(int ns, int maxDepth, int seed = 0);
+    ~LearnedSampler();
     void StartPixel(const Point2i &);
     void GenerateSample(float *pdf);
     Float Get1D();
     Point2f Get2D();
     Point2f GetRand2D();
 
-    void train();
-    void saveSample(float Li);
+    // void train();
+    // void saveSample(float Li);  // replace with a write out to .csv
+
+    std::vector<float> getSampleValues();
+    // void storeSample(std::vector<float> sample);
     void setEval();
 
     std::unique_ptr<Sampler> Clone(int seed);
@@ -41,9 +50,13 @@ class LearnedSampler : public Sampler {
     int num_features;
     bool eval = false;
 
-    torch::Tensor savedData_tensor;
-    std::vector<std::vector<float>> savedData_vec;
-    RealNVP net;
+    int sample_index = 0;
+    int total_samples = 0;
+
+    bool in_lightdist_sampling = false;
+
+    PyObject *net;
+    float net_samples[5];
 };
 
 Sampler *CreateLearnedSampler(const ParamSet &params);

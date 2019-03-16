@@ -38,6 +38,7 @@
 #include "parallel.h"
 #include <glog/logging.h>
 
+
 using namespace pbrt;
 
 static void usage(const char *msg = nullptr) {
@@ -74,7 +75,6 @@ Reformatting options:
 
 // main program
 int main(int argc, char *argv[]) {
-
 	
 	google::InitGoogleLogging(argv[0]);
     FLAGS_stderrthreshold = 1; // Warning and above.
