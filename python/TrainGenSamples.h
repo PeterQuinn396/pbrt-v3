@@ -20,6 +20,8 @@
 
 __PYX_EXTERN_C PyObject *createSampleGenerator(void);
 __PYX_EXTERN_C void sample(PyObject *, float *, float *);
+__PYX_EXTERN_C void samplerTestPrint(void);
+__PYX_EXTERN_C PyObject *createDummyObject(void);
 
 #endif /* !__PYX_HAVE_API__TrainGenSamples */
 

@@ -8,12 +8,18 @@
 #else
 #include <Python.h>
 #endif
+
 #include "TrainGenSamples.h"
 #include "samplers/learned.h"
 
 #include "paramset.h"
 #include "sampling.h"
 #include "stats.h"
+
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <iomanip>
 
 namespace pbrt {
 
@@ -81,7 +87,44 @@ void LearnedSampler::GenerateSample(float *pdf) {
         sample1D = rng.UniformFloat();
 
         *pdf = 1.f;  // uniform
-    } else {         // network is trained and ready for use
+    } else if (usecsv) {
+
+		if (current_line == lines_in_csv) { // load next file if we need to
+            printf("\nloading file %i", current_file);
+            loaded_data.clear();
+            std::string name =
+                "new_samples_" + std::to_string(current_file) + ".csv";
+            std::ifstream in(name);
+            std::string line;
+            while (std::getline(in, line)) {
+                std::stringstream ss(line);
+                std::vector<float> row;
+                std::string data;
+                while (std::getline(ss, data, ',')) {
+                    row.push_back(std::stof(data));
+				}
+                if (row.size() > 0) {
+					loaded_data.push_back(row);
+				}
+			}	
+			current_line = 0;
+            current_file++;
+            if (current_file > 20)
+                Error("tried to load too many sample files\n");
+		}
+		// fill next data point
+        int i = 0;
+        for (; i < maxDepth; i++) {
+            Point2f _sample = {loaded_data[current_line][2 * i],
+                               loaded_data[current_line][2 * i + 1]};
+            samples2D.emplace_back(_sample);
+        }
+        sample1D = loaded_data[current_line][2 * i];
+        *pdf = loaded_data[current_line][2 * i+1];
+        current_line++;
+	} 
+	else
+	{         // network is trained and ready for use
 
         // use the python code to generate a sample
         sample(net, net_samples, pdf);  // pdf gets set here
@@ -95,6 +138,7 @@ void LearnedSampler::GenerateSample(float *pdf) {
 
         // grab the last sample
         sample1D = net_samples[2 * i];
+        *pdf = net_samples[2 * i + 1];
     }
 }
 
@@ -112,9 +156,25 @@ std::vector<float> LearnedSampler::getSampleValues() {
 
 void LearnedSampler::setEval() {
     eval = true;
-    Py_Initialize();
-    initTrainGenSamples();
-    net = createSampleGenerator();
+    if (usecsv) {
+		printf("Loading in values from csv files\n"); 
+	
+	} else {
+		printf("Initialzing Python Sampler Object...");
+		int err = PyImport_AppendInittab("sampler", PyInit_TrainGenSamples);
+		if (PyErr_Occurred()) PyErr_Print();
+		Py_Initialize();
+		// PyRun_SimpleString("import sys"); // for debugging
+		// PyRun_SimpleString("print(sys.path)");
+		// PyRun_SimpleString("print(sys.exec_prefix)");
+		// PyRun_SimpleString("print(sys.version)");	
+		PyObject *mod = PyImport_ImportModule("sampler");
+		if (PyErr_Occurred()) PyErr_Print();
+    
+		net = createSampleGenerator();
+		if (PyErr_Occurred()) PyErr_Print();
+		printf("Python Code loaded succesfully\n");
+	}
 }
 
 std::unique_ptr<Sampler> LearnedSampler::Clone(int seed) {

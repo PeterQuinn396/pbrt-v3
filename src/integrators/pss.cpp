@@ -68,11 +68,14 @@ Spectrum PSSIntegrator::Li(const RayDifferential &r, const Scene &scene,
         bool foundIntersection = scene.Intersect(ray, &i);
 
         // Possibly add emitted light at intersection
-        if (bounces == 0 || specularBounce) {
+        if (usenee && bounces == 0 || specularBounce) {
             // Add emitted light at path vertex or from environment
             if (foundIntersection) {
+               // ++totalPaths;
                 L += beta * i.Le(-ray.d);
                 VLOG(2) << "Added Le -> L = " << L;
+               // if (L.IsBlack()) ++zeroRadiancePaths;
+                //return L; // emitters do not scatter, return now
             } else {
                 for (const auto &light : scene.infiniteLights)
                     L += beta * light->Le(ray);
@@ -105,7 +108,7 @@ Spectrum PSSIntegrator::Li(const RayDifferential &r, const Scene &scene,
             if (train && bounces == maxDepth - 1) {
                 Spectrum Ld =
                     beta * UniformSampleOneLight(i, scene, arena,
-                                                 learnedSampler,  // to change
+                                                 learnedSampler,  
                                                  false, distrib);
 
                 VLOG(2) << "Sampled direct lighting Ld = " << Ld;
@@ -119,7 +122,7 @@ Spectrum PSSIntegrator::Li(const RayDifferential &r, const Scene &scene,
                     ++totalPaths;
                     Spectrum Ld = beta * UniformSampleOneLight(
                                              i, scene, arena,
-                                             learnedSampler,  // to change
+                                             learnedSampler,  
                                              false, distrib);
 
                     VLOG(2) << "Sampled direct lighting Ld = " << Ld;
@@ -405,13 +408,8 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
       
        
     }  // end train
-
-	printf("Initialzing Python Sampler Object...");
-
-	 learnedSampler
-        ->setEval();  // initialize the python code to generate new samples
-
-	 printf("Done");
+	
+	 // learnedSampler->setEval();  // initialize the python code (or csv lookup) to generate new samples	
     // eval mode
 
     train = false;  // make this more elegant later
@@ -511,7 +509,7 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
             // Add camera ray's contribution to image
             camera->film->AddSplat(
                 cameraSample.pFilm,
-                L / learnedSampler->samplesPerPixel);  // normalize by the spp
+                L / learnedSampler->samplesPerPixel/warp_pdf);  // normalize by the spp
 
             // Free _MemoryArena_ memory from computing image sample
             // value

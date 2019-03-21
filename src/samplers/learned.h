@@ -20,6 +20,7 @@
 #include "rng.h"
 #include "sampler.h"
 
+
 namespace pbrt {
 
 class LearnedSampler : public Sampler {
@@ -49,12 +50,19 @@ class LearnedSampler : public Sampler {
     Float sample1D;
     int num_features;
     bool eval = false;
-
+	
     int sample_index = 0;
     int total_samples = 0;
-
     bool in_lightdist_sampling = false;
 
+    // csv stuff
+    bool usecsv = true;
+    int lines_in_csv = 100000;
+    int current_line = lines_in_csv;
+    int current_file = 1;
+    std::vector<std::vector<float>> loaded_data;
+
+    // neural network stuff
     PyObject *net;
     float net_samples[5];
 };
