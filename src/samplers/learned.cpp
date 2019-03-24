@@ -93,7 +93,7 @@ void LearnedSampler::GenerateSample(float *pdf) {
             printf("\nloading file %i", current_file);
             loaded_data.clear();
             std::string name =
-                "new_samples_" + std::to_string(current_file) + ".csv";
+                "teapot\\cosine\\new_samples_teapot_cosine_" + std::to_string(current_file) + ".csv";
             std::ifstream in(name);
             std::string line;
             while (std::getline(in, line)) {
@@ -176,6 +176,12 @@ void LearnedSampler::setEval() {
 		printf("Python Code loaded succesfully\n");
 	}
 }
+
+void LearnedSampler::useRandValues() { eval = false;}
+
+void LearnedSampler::useTrainedVals() { eval = true; }
+
+bool LearnedSampler::isUsingRandVals() { return !eval; }
 
 std::unique_ptr<Sampler> LearnedSampler::Clone(int seed) {
     LearnedSampler *rs = new LearnedSampler(*this);

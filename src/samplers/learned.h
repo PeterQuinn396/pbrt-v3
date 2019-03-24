@@ -33,12 +33,13 @@ class LearnedSampler : public Sampler {
     Point2f Get2D();
     Point2f GetRand2D();
 
-    // void train();
-    // void saveSample(float Li);  // replace with a write out to .csv
-
-    std::vector<float> getSampleValues();
-    // void storeSample(std::vector<float> sample);
+    void useRandValues();
+    void useTrainedVals();
+    bool isUsingRandVals();
     void setEval();
+    std::vector<float> getSampleValues();
+   
+    
 
     std::unique_ptr<Sampler> Clone(int seed);
 

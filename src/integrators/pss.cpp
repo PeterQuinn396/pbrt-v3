@@ -1,7 +1,5 @@
 // integrators/path.cpp*
 
-
-
 #include "integrators/pss.h"
 #include "bssrdf.h"
 #include "camera.h"
@@ -71,11 +69,11 @@ Spectrum PSSIntegrator::Li(const RayDifferential &r, const Scene &scene,
         if (usenee && bounces == 0 || specularBounce) {
             // Add emitted light at path vertex or from environment
             if (foundIntersection) {
-               // ++totalPaths;
+                // ++totalPaths;
                 L += beta * i.Le(-ray.d);
                 VLOG(2) << "Added Le -> L = " << L;
-               // if (L.IsBlack()) ++zeroRadiancePaths;
-                //return L; // emitters do not scatter, return now
+                // if (L.IsBlack()) ++zeroRadiancePaths;
+                // return L; // emitters do not scatter, return now
             } else {
                 for (const auto &light : scene.infiniteLights)
                     L += beta * light->Le(ray);
@@ -107,9 +105,8 @@ Spectrum PSSIntegrator::Li(const RayDifferential &r, const Scene &scene,
                   // connection on the last bounce
             if (train && bounces == maxDepth - 1) {
                 Spectrum Ld =
-                    beta * UniformSampleOneLight(i, scene, arena,
-                                                 learnedSampler,  
-                                                 false, distrib);
+                    beta * UniformSampleOneLight(
+                               i, scene, arena, learnedSampler, false, distrib);
 
                 VLOG(2) << "Sampled direct lighting Ld = " << Ld;
                 if (Ld.IsBlack()) ++zeroRadiancePaths;
@@ -120,10 +117,9 @@ Spectrum PSSIntegrator::Li(const RayDifferential &r, const Scene &scene,
                 // last bounce or using nee
                 if (bounces == maxDepth - 1) {
                     ++totalPaths;
-                    Spectrum Ld = beta * UniformSampleOneLight(
-                                             i, scene, arena,
-                                             learnedSampler,  
-                                             false, distrib);
+                    Spectrum Ld = beta * UniformSampleOneLight(i, scene, arena,
+                                                               learnedSampler,
+                                                               false, distrib);
 
                     VLOG(2) << "Sampled direct lighting Ld = " << Ld;
                     if (Ld.IsBlack()) ++zeroRadiancePaths;
@@ -275,7 +271,7 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
         int sampleCount = 0;
         ProgressReporter reporter(x_res * y_res, "Generating Training Data");
         std::ofstream csv_file_training;
-        csv_file_training.open("training_data.csv");
+        csv_file_training.open("teapot\\cosine\\training_data_teapot_16spp_cosine.csv");
 
         for (Point2i pixel : sampleBounds) {  // for each pixel
 
@@ -403,13 +399,13 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
         csv_file_training.close();
 
         // call python script here
-        printf("Made it to the python training part\n Exiting\n");
-        exit(0);
-      
-       
+        printf("Finished Generating training data\n Exiting\n");
+        return;  // exit the program here after generating training data
+
     }  // end train
-	
-	 // learnedSampler->setEval();  // initialize the python code (or csv lookup) to generate new samples	
+
+    // learnedSampler->setEval();  // initialize the python code (or csv lookup) to
+                                // generate new samples
     // eval mode
 
     train = false;  // make this more elegant later
@@ -439,7 +435,21 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
             // the path save the pdf/jacobian of the warping process
             float warp_pdf = 1.f;
 
-            learnedSampler->GenerateSample(&warp_pdf);
+            // if we are using nee, we need to mix in some random samples,
+            // otherwise we miss large parts of the image due to only paths
+            // that have good radiance after 2 bounces
+    //        if (usenee) {
+    //            float rand = randSampler->Get1D();
+    //            if (rand < .8) {
+    //                learnedSampler->useRandValues();
+    //            } else {
+    //                learnedSampler->useTrainedVals();
+				//}
+    //        }
+    //        train = !learnedSampler->isUsingRandVals(); // very weird, but does the correct flow control in Li
+			// the above seems to mess up the reporter keeping track of the zero radiance paths
+            
+			learnedSampler->GenerateSample(&warp_pdf);
 
             CameraSample cameraSample;
             // adjust the point where the ray goes through
@@ -507,9 +517,9 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
                     << " -> L = " << L;
 
             // Add camera ray's contribution to image
-            camera->film->AddSplat(
-                cameraSample.pFilm,
-                L / learnedSampler->samplesPerPixel/warp_pdf);  // normalize by the spp
+            camera->film->AddSplat(cameraSample.pFilm,
+                                   L / learnedSampler->samplesPerPixel /
+                                       warp_pdf);  // normalize by the spp
 
             // Free _MemoryArena_ memory from computing image sample
             // value
