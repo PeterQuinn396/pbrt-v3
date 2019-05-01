@@ -264,14 +264,14 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
 
     // rewritten tracing loop
     // single thread
-    bool train = false;
+    bool train = true;
     if (train) {  // do training phase if needed
                   // generate training data
                   // save data to a csv file to be processed by the python code
         int sampleCount = 0;
         ProgressReporter reporter(x_res * y_res, "Generating Training Data");
         std::ofstream csv_file_training;
-        csv_file_training.open("teapot\\cosine\\training_data_teapot_16spp_cosine.csv");
+        csv_file_training.open("training_data_teapot_16spp_bsdf.csv");
 
         for (Point2i pixel : sampleBounds) {  // for each pixel
 

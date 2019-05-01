@@ -93,7 +93,7 @@ void LearnedSampler::GenerateSample(float *pdf) {
             printf("\nloading file %i", current_file);
             loaded_data.clear();
             std::string name =
-                "teapot\\cosine\\new_samples_teapot_cosine_" + std::to_string(current_file) + ".csv";
+                "bsdf\\new_samples_sanmiguel_bsdf_" + std::to_string(current_file) + ".csv";
             std::ifstream in(name);
             std::string line;
             while (std::getline(in, line)) {
@@ -109,7 +109,7 @@ void LearnedSampler::GenerateSample(float *pdf) {
 			}	
 			current_line = 0;
             current_file++;
-            if (current_file > 20)
+            if (current_file > 100)
                 Error("tried to load too many sample files\n");
 		}
 		// fill next data point
