@@ -13,57 +13,56 @@
 #include "lightdistrib.h"
 #include "pbrt.h"
 #include "samplers/learned.h"
+#include "paramset.h"
 using namespace std;
 namespace pbrt {
 
 // PathIntegrator Declarations
-class PSSIntegrator : public Integrator{
+class PSSIntegrator : public Integrator {
   public:
     // PSSIntegrator Public Methods
     PSSIntegrator(int maxDepth, std::shared_ptr<const Camera> camera,
                   std::shared_ptr<Sampler> randSampler,
-			      std::shared_ptr<LearnedSampler> learnedSampler, 
-				  const Bounds2i &pixelBounds,
-                  Float rrThreshold = 1,
+                  std::shared_ptr<LearnedSampler> learnedSampler,
+                  const Bounds2i &pixelBounds, Float rrThreshold = 1,
                   const std::string &lightSampleStrategy = "spatial",
                   const std::string &pathSampleStrategy = "bsdf",
-                  const bool usenee = true);
+                  const bool usenee = true, const ParamSet &params);
 
     void Preprocess(const Scene &scene, Sampler &sampler);
 
     Spectrum Li(const RayDifferential &ray, const Scene &scene,
-                Sampler &randSampler, LearnedSampler &learnedSampler, MemoryArena &arena, int depth, bool train) const;
+                Sampler &randSampler, LearnedSampler &learnedSampler,
+                MemoryArena &arena, int depth, bool train) const;
 
-	Spectrum Li_standardPath(const RayDifferential &r,
-                                            const Scene &scene,
-                                            Sampler &sampler,
-                                            MemoryArena &arena,
-                                            int depth) const;
+    Spectrum Li_standardPath(const RayDifferential &r, const Scene &scene,
+                             Sampler &sampler, MemoryArena &arena,
+                             int depth) const;
 
     void Render(const Scene &scene);
 
-protected:
+  protected:
     // SamplerIntegrator Protected Data
     std::shared_ptr<const Camera> camera;
 
   private:
     // PSSIntegrator Private Data
     vector<Point2f> samples;
-    int sampleNum;   
+    int sampleNum;
     const int maxDepth;
     const Float rrThreshold;  // to remove
     const std::string lightSampleStrategy;
     const std::string pathSampleStrategy;
     const bool usenee;
+    const ParamSet &params;
     std::unique_ptr<LightDistribution> lightDistribution;
     Bounds2i pixelBounds;
 
-	std::shared_ptr<LearnedSampler> learnedSampler;    
+    std::shared_ptr<LearnedSampler> learnedSampler;
     std::shared_ptr<Sampler> randSampler;
-        
 };
 
-PSSIntegrator *CreatePSSIntegrator(const ParamSet &params,                                  
+PSSIntegrator *CreatePSSIntegrator(const ParamSet &params,
                                    std::shared_ptr<const Camera> camera);
 
 }  // namespace pbrt

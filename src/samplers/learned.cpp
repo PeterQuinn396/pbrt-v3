@@ -64,7 +64,7 @@ Point2f LearnedSampler::GetRand2D() {
     return {rng.UniformFloat(), rng.UniformFloat()};
 }
 
-void LearnedSampler::GenerateSample(float *pdf) {
+void LearnedSampler::GenerateSample(float *pdf) { //TODO: rewrite to use preloaded model
     // reset sample num and sample array
     sampleNum = 0;
     in_lightdist_sampling = false;
@@ -154,7 +154,9 @@ std::vector<float> LearnedSampler::getSampleValues() {
     return data;
 }
 
-void LearnedSampler::setEval() {
+void LearnedSampler::setEval(std::string modelname) {
+
+	// rewrite to load pytorch model
     eval = true;
     if (usecsv) {
 		printf("Loading in values from csv files\n"); 

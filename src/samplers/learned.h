@@ -36,9 +36,8 @@ class LearnedSampler : public Sampler {
     void useRandValues();
     void useTrainedVals();
     bool isUsingRandVals();
-    void setEval();
-    std::vector<float> getSampleValues();
-   
+    void setEval(std::string modelname);
+    std::vector<float> getSampleValues(); 
     
 
     std::unique_ptr<Sampler> Clone(int seed);

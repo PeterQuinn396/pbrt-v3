@@ -30,7 +30,7 @@ PSSIntegrator::PSSIntegrator(int maxDepth, std::shared_ptr<const Camera> camera,
                              const Bounds2i &pixelBounds, Float rrThreshold,
                              const std::string &lightSampleStrategy,
                              const std::string &pathSampleStrategy,
-                             const bool usenee)
+                             const bool usenee, const ParamSet &params)
     : camera(camera),
       randSampler(randSampler),
       learnedSampler(learnedSampler),
@@ -39,7 +39,7 @@ PSSIntegrator::PSSIntegrator(int maxDepth, std::shared_ptr<const Camera> camera,
       rrThreshold(rrThreshold),
       lightSampleStrategy(lightSampleStrategy),
       pathSampleStrategy(pathSampleStrategy),
-      usenee(usenee) {}
+      usenee(usenee), params(params) {}
 
 void PSSIntegrator::Preprocess(const Scene &scene, Sampler &sampler) {
     lightDistribution =
@@ -162,6 +162,8 @@ Spectrum PSSIntegrator::Li(const RayDifferential &r, const Scene &scene,
         // sampling strategies for example, is it better to learn to
         // sample/select paths from a unifrom hemisphere, or do we
         // preweight/bias it by cosine/bsdf?
+
+		//bsdf seems to work best
         if (pathSampleStrategy == "uniform") {
             wi = i.bsdf->LocalToWorld(UniformSampleHemisphere(rand2D));
             pdf = UniformHemispherePdf();
@@ -264,14 +266,15 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
 
     // rewritten tracing loop
     // single thread
-    bool train = true;
+    bool train = params.FindOneBool("train", false);
     if (train) {  // do training phase if needed
                   // generate training data
                   // save data to a csv file to be processed by the python code
         int sampleCount = 0;
         ProgressReporter reporter(x_res * y_res, "Generating Training Data");
-        std::ofstream csv_file_training;
-        csv_file_training.open("training_data_teapot_16spp_bsdf.csv");
+        std::ofstream csv_file_training;       
+        const std::string filename = params.FindOneString("datafile_name", "");
+        csv_file_training.open(filename);
 
         for (Point2i pixel : sampleBounds) {  // for each pixel
 
@@ -393,22 +396,19 @@ void PSSIntegrator::Render(const Scene &scene) {  // generate samples here
             reporter.Update();
         }
         reporter.Done();
-        // train network
         printf("\nNumber of samples generated: %i\n", sampleCount);
-
-        csv_file_training.close();
-
-        // call python script here
-        printf("Finished Generating training data\n Exiting\n");
+		csv_file_training.close();
+		printf("Finished Generating training data\n Exiting\n");
         return;  // exit the program here after generating training data
 
     }  // end train
 
-    // learnedSampler->setEval();  // initialize the python code (or csv lookup) to
+	std::string modelname = params.FindOneString("modelname", "");
+    learnedSampler->setEval(modelname);  // initialize the python code (or csv lookup) to
                                 // generate new samples
     // eval mode
 
-    train = false;  // make this more elegant later
+    train = false;  
     ProgressReporter render_reporter(x_res * y_res, "Rendering");
     for (Point2i pixel : sampleBounds) {  // for each pixel
 
@@ -561,7 +561,7 @@ PSSIntegrator *CreatePSSIntegrator(const ParamSet &params,
     bool nee = params.FindOneBool("usenee", true);
 
     int ns = params.FindOneInt("pixelsamples", 4);
-
+	
     std::shared_ptr<Sampler> sampler =
         std::shared_ptr<Sampler>(CreateRandomSampler(params));
 
@@ -570,7 +570,7 @@ PSSIntegrator *CreatePSSIntegrator(const ParamSet &params,
 
     return new PSSIntegrator(maxDepth, camera, sampler, learnedSampler,
                              pixBounds, rrThreshold, lightStrategy,
-                             pathSampleStrategy, nee);
+                             pathSampleStrategy, nee, params);
 }
 
 }  // namespace pbrt
